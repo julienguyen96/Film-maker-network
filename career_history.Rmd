@@ -1,0 +1,517 @@
+---
+title: "Tracing career histories of film directors from IMDb data"
+author: 
+- Julie Nguyen ([Personal website](https://www.jnnguyen.com/))
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output:
+  html_document:
+    theme: flatly
+    code_folding: show
+    toc: false
+    number_sections: no
+    fig_caption: yes
+    df_print: kable
+subparagraph: yes
+---
+
+<script>
+$(document).ready(function() {
+  $items = $('div#TOC li');
+  $items.each(function(idx) {
+    num_ul = $(this).parentsUntil('#TOC').length;
+    $(this).css({'text-indent': num_ul * 10, 'padding-left': 0});
+  });
+
+});
+</script>
+
+<style type="text/css">
+  body{
+  font-size: 12pt;
+}
+</style>
+```{r setup, include=FALSE}
+library(knitr) # publish this document
+library(silgelib) # use Julia Silge's functions
+library(dplyr) # manipulate data
+library(tidyr) # manipulate data
+library(ggplot2) # visualization
+library(kableExtra) # create pretty table
+
+opts_chunk$set(
+  tidy = F, 
+  echo = T, 
+  cache = T, 
+  message = F, 
+  warning = F,
+  eval = T
+  # fig.width = 8, fig.height = 5
+  )
+
+options(knitr.kable.NA = '',
+        width=120, 
+        dplyr.width = 150) 
+
+theme_set(theme_plex())
+```
+
+In this post, I use IMDb data to construct a sample of first-time movie directors and collect data on the movies they worked on throughout their career.
+ 
+This data is created for a study in my dissertation that explores whether working with highly central people in the network predicts career survival of first-time movie directors, or more specifically, the number of movies directors go on to make after their first movie. To this end, I first construct the career histories of movie directors who made their first movie between 1980 and 2010, using the data I downloaded from https://datasets.imdbws.com/. IMDb has the most complete database on film-makers worldwide. It contains information on film and TV productions and the people who work on them since the late 1800s until now.
+
+I choose 1980 as the start of my sample of directors because this time marks the transition of the Hollywood film industry from in-house productions to projects and personal networks. As such, movies made after 1980 are more representative of film industry today. I choose 2010 as the end of the sample because it allows me to observe the first 10 years of all directors' career.
+
+# Getting movies made between 1980 and 2010
+
+First, let's read the Imdb data on movie information and see what years we have data on.
+
+```{r, eval = F, include=FALSE}
+readr::read_tsv("/Users/mac/Library/CloudStorage/OneDrive-McGillUniversity/Work/Projects/Social cap and gender/raw data/imdb/title.basics.tsv") -> title_basics
+
+saveRDS(title_basics, "/Users/mac/Library/CloudStorage/OneDrive-McGillUniversity/Work/Blog/data/imdb/title_basics.rds")
+
+readr::read_tsv("/Users/mac/Library/CloudStorage/OneDrive-McGillUniversity/Work/Projects/Social cap and gender/raw data/imdb/title.principals.tsv") -> title_principals
+
+saveRDS(title_principals, "/Users/mac/Library/CloudStorage/OneDrive-McGillUniversity/Work/Blog/data/imdb/title_principals.rds")
+
+readr::read_tsv("C:/Users/nnguye79/OneDrive - McGill University/Work/Projects/Social cap and gender/raw data/imdb/title.ratings.tsv") -> title_ratings
+
+saveRDS(title_ratings, "C:/Users/nnguye79/OneDrive - McGill University/Work/Blog/data/imdb/title_ratings.rds")
+```
+
+```{r, eval=FALSE, include=FALSE}
+# read rds file
+title_basics <- readRDS("C:/Users/nnguye79/OneDrive - McGill University/Work/Blog/data/imdb/title_basics.rds")
+
+# get the subset of movies that have information on year and genres and are not porn
+title_basics %>% 
+ # recode "\\N" value in genres and startYear as NA
+  mutate(genres = ifelse(genres == "\\N", NA, genres),
+         startYear = ifelse(startYear == "\\N", NA, startYear)) %>% 
+  # get movies only
+  filter(titleType == "movie" & 
+           # exclude movies without start year
+           !is.na(startYear) & 
+           # exclude movies without genres
+           !is.na(genres) &
+           # exclude porn
+           isAdult == 0) %>% 
+  # select variables we are interested in
+  select(tconst, startYear, genres) %>% 
+  # rename variable
+  rename(movie_id = tconst,
+         year = startYear) -> title_basics_2
+
+rm(title_basics)
+saveRDS(title_basics_2, "C:/Users/nnguye79/OneDrive - McGill University/Work/Blog/data/imdb/title_basics_2.rds")
+```
+
+```{r, cache.lazy = FALSE}
+# read data on movies that have information on year and genres 
+title_basics_2 <- readRDS("C:/Users/nnguye79/OneDrive - McGill University/Work/Projects/Social cap and gender/Film-maker-network/Data/Raw data/title_basics_2.rds")
+
+# load data on people working on movies
+title_principals_2 <- readRDS("C:/Users/nnguye79/OneDrive - McGill University/Work/Projects/Social cap and gender/Film-maker-network/Data/Raw data/title_principals_2.rds")
+
+# get the functions I have written to create table with scroll box
+source("functions.R")
+```
+
+The earliest year we have data on is `r min(title_basics_2$year)` and the latest year we have data on is `r max(title_basics_2$year)`. Seems like IMDb also has info on movies that have not been finished yet. Let's graph the number of movies in the database across time.
+
+```{r}
+# graph the number of movies over time
+title_basics_2 %>% 
+  # turn year into numeric character
+  mutate(year = as.numeric(year)) %>% 
+  # count the number of movies made in each year
+  count(year, sort= T) %>% 
+  # create a bar chart with year in the x axis and number of movies in the y axis
+  ggplot(aes(year, n)) + 
+  geom_col(fill = "#8BD8BD") +
+  labs(y = "Number of movies", 
+       x = NULL, 
+       title = "How many movies were made each year?",
+       subtitle = "A lot more movies are made in the 21st century than previous centuries")
+```
+
+Next, we retain only the movies made between 1980 and 2010. Let's take a look at the first 20 rows of the data to see what the data looks like now. 
+
+```{r}
+# get the movies made between 1980 and 2010
+title_basics_2 %>% filter(between(year, 1980, 2010)) -> movie
+
+movie %>% head(20) %>% kbl_2()
+```
+
+We now have a list of `r movie %>% nrow()` movies made between 1980 and 2010, with information on movie id (`movie_id`), the year the movie was released (`year`), and the movie's genres (`genres`). 
+
+# Getting directors who made their first movie between 1980 and 2010
+
+Our next step is to get the directors of these movies. To do this, we need to merge the IMDb dataset on titles and the dataset on principals, and exclude movies that do not have information on directors.
+
+```{r, eval = FALSE, include=FALSE}
+
+title_principals %>% 
+  select(tconst, nconst, category) %>% 
+  rename(movie_id = tconst,
+         person_id =  nconst) -> title_principals_2
+
+rm(title_principals)
+saveRDS(title_principals_2, "C:/Users/nnguye79/OneDrive - McGill University/Work/Blog/data/imdb/title_principals_2.rds")
+
+```
+
+```{r}
+movie %>% 
+  # get the director of these movies by merging movie data with crew data using movie id
+  left_join(title_principals_2 %>% 
+              # get directors of movies
+              filter(category == "director") %>% 
+              # choose movie id and person id
+              select(movie_id, person_id), 
+            # merge with movie id as key
+            by = "movie_id") %>%
+  rename(director_id = person_id) %>% 
+  # remove movies without info on director
+  filter(!is.na(director_id)) -> movie
+```
+
+
+This gives us `r movie %>% distinct(movie_id, director_id) %>% nrow()` director-movie pairs, which are made up of `r movie %>% distinct(director_id) %>% nrow()` distinct directors and `r movie %>% distinct(movie_id) %>% nrow()` distinct movies, with some movies had more than one director.
+
+Now that we have a list of directors who made at least one movie between 1980 and 2010, we need to get the subset of directors whose first movie was made within this period. To do this, we first get all the movies of the directors in the list. 
+
+```{r}
+movie %>% 
+  # get distinct director id
+  distinct(director_id) %>% 
+  # get all work directed by these directors by merging by person id with crew info
+  left_join(title_principals_2 %>% 
+              filter(category == "director") %>% 
+              select(movie_id, person_id), 
+            by = c("director_id" = "person_id")) -> movie
+
+# get the release year of directors' movies by merging by movie id with movie info
+movie %>% 
+  left_join(title_basics_2, by = "movie_id") %>% 
+  # remove movies of directors that do not have release year
+  filter(!is.na(year)) -> movie
+```
+
+
+
+Next, we get the first movies of the directors in our list and then only choose the directors whose first movie was made between 1980 and 2010. 
+
+```{r}
+movie %>% 
+  # group by director id 
+  group_by(director_id) %>% 
+  # get the movie with earliest year within each director id group
+  slice_min(year) %>%   
+  ungroup() %>% 
+  # get the movies made between 1980 and 2010
+  filter(between(year, 1980, 2010)) -> movie
+```
+
+This gives us a sample of `r movie %>% distinct(movie_id, director_id) %>% nrow()` director-movie pair, made up of `r movie %>% distinct(director_id) %>% nrow()` directors directing `r movie %>% distinct(movie_id) %>% nrow()` movies, with some first-time directors directed more than one movie, and some movies were directed by more than  one first-time director.
+
+Let's see how many directors make their first movie in each year within our observation period.
+
+```{r}
+movie %>% 
+  distinct(director_id, year) %>% 
+  # count the number of directors in each year
+  count(year, sort= T) %>% 
+  # create a bar chart with year in the x axis and number of director in the y axis
+  ggplot(aes(factor(year), n, fill = year)) + 
+  geom_col(show.legend = F) +
+  labs(y = "Number of directors", 
+       x = NULL, 
+       title = "How many directors made their first movie in each year?") +
+  scale_x_discrete(breaks = c(1980, 1985, 1990, 1995, 2000, 2005, 2010))
+```
+
+How many movies did a director usually have when they first directed? 
+
+```{r}
+movie %>% 
+  count(director_id, sort = T) %>% 
+  count(n) %>% 
+  rename(number_movie = n,
+         n = nn) %>% 
+  kable()
+```
+
+It looks like most directors directed one movie in their early career, but a small group of directors did make more than one movie the year they started directing. Let's create a variable for the numbers of movies a director made the year they started their directing career.
+
+```{r}
+movie %>% 
+  left_join(movie %>% 
+              # count the number of movies a first-time director made
+              count(director_id) %>% 
+              rename(number_first_movie = n)) -> movie
+```
+
+
+
+
+# Tracing career history of first-time directors
+
+Now that we have our list of directors who made their first movies between 1980 and 2010, we can move on to tracing how the career of these directors turns out. Specifically, let's gather information on whether they go on to make other movies in the first 10 years of their career. First, let's get all the movies a director in our  list has been involved in and see what the first 20 rows of the data looks like.
+
+```{r}
+movie %>% 
+  rename(first_movie_id = movie_id, 
+         first_movie_year = year,
+         first_movie_genres = genres) %>% 
+  # merge with data on crew information to find all the projects a director has been involved in
+  left_join(title_principals_2,
+            by = c("director_id" = "person_id")) -> movie
+
+movie %>% 
+  # merge with data on movie information
+  left_join(title_basics_2, by = "movie_id") %>% 
+  # remove the projects that are not in the movie data (and thus are not movies, but for example are tv episodes)
+  filter(!is.na(year)) %>% 
+  select(-genres) -> movie
+
+movie %>% head(20) %>% kbl_2()
+```
+Each row now is a director-movie observation, containing information on a movie a director has been involved in regardless of her or his role in the movie. For each director, there is information on 
+
+- Director ID (`director_id`)
+- ID of the first movie they directed (`first_movie_id`)
+- The year they directed their first movie (`first_movie_year`)
+- The genres of the first movie they directed (`first_movie_genres`)
+- The number of movies they directed the year they started directing (`number_first_movie`)
+- ID of movies they have been involved  in throughout their career in any role (`movie_id`)
+- The role they took on in these movies (`category`)
+- The year these movies came out (`year`). 
+
+For the movies the directors in our list have been involved in, we can also add information on their IMDb ratings and number of votes on IMDb.
+
+```{r}
+title_ratings <- readRDS("C:/Users/nnguye79/OneDrive - McGill University/Work/Projects/Social cap and gender/Film-maker-network/Data/Raw data/title_ratings.rds")
+
+movie %>% 
+  # merging movie data with rating data
+  left_join(title_ratings, by = c("movie_id" = "tconst")) %>% 
+  rename(rating = averageRating,
+         number_vote = numVotes) %>% 
+  left_join(title_ratings, by = c("first_movie_id"  = "tconst")) %>% 
+  rename(first_movie_rating = averageRating,
+         first_movie_number_vote = numVotes) -> movie
+```
+
+
+```{r, include=FALSE}
+rm(title_ratings)
+```
+
+Let's graph the distribution of ratings for movies made by first-time directors over time. 
+
+```{r}
+movie %>% 
+  filter(first_movie_id == movie_id) %>% 
+  mutate(decade = (as.numeric(year) %/% 10) * 10,
+         decade = factor(decade)) %>% 
+  ggplot(aes(decade, first_movie_rating, color = decade)) +
+  geom_boxplot(outlier.colour = NA) +
+  geom_jitter(alpha = 0.1, width = 0.15) +
+  labs(x = NULL, y = "Movie ratings", title = "Distribution of ratings among movies made by first-time directors") +
+  theme(legend.position = "none")
+```
+
+It looks like movies made by first-time directors in the 2000s and 2010s have slightly higher ratings on average compared to movies made by first-time directors in the 1980s and 1990s.
+
+Let's also graph the distribution of votes (reflecting popularity) for movies made by first-time directors over time.
+
+```{r}
+# turn off academic notion
+options(scipen = 999)
+
+movie %>% 
+  filter(first_movie_id == movie_id) %>% 
+  mutate(decade = (as.numeric(year) %/% 10) * 10,
+         decade = factor(decade)) %>% 
+  ggplot(aes(decade, first_movie_number_vote, color = decade)) +
+  geom_boxplot(outlier.colour = NA) +
+  geom_jitter(alpha = 0.1, width = 0.15) +
+  labs(x = NULL, y = "Number of votes (logged)", title = "Distribution of votes among movies made by first-time directors") +
+  theme(legend.position = "none") +
+  # log transform y axis for clearer image
+  scale_y_log10()
+```
+
+
+## Director career before their first movie 
+
+Some first-time directors might have worked on other movies before they started directing, where they took on creative non-directing roles (producer, writer, editor, cinematographer, production designer, and composer). This prior experience might influence their career survival as a director. Therefore, we will create two variables to reflect a first-time director's prior work experience, including whether they have worked on other movies in creative non-directing roles before they directed their first movie, and if so, how many movies and which role they took on in these movies.
+
+```{r}
+movie %>% 
+  # get the movies a director worked on before they directed, 
+  # where they took on creative non-directing roles 
+  filter(year < first_movie_year & 
+           category %in% c("producer", "writer", "editor", 
+                           "cinematographer", "production_designer", "composer")) %>% 
+  # calculate the number of times a director has worked on a particular creative role 
+  fastDummies::dummy_cols(select_columns = "category") %>%
+  group_by(director_id) %>% 
+  summarise(across(starts_with("category_"), sum)) %>% 
+  # calculate the number of movies a director worked on before they directed, 
+  # where they took on creative non-directing roles 
+  rowwise(director_id) %>% 
+  mutate(number_previous_movie = sum(c_across(where(is.numeric)))) %>% 
+  # create dummy variable reflecting whether a director has worked on a creative non-directing role or not
+  mutate(across(starts_with("category_"), ~ ifelse(. > 0, 1, .))) -> prior_experience
+
+movie %>% 
+  # merge movie data prior experience data
+  left_join(prior_experience) %>% 
+  # for directors who has not worked in creative non-directing roles before they directed a movie, 
+  # code all variables on prior experience as 0
+  mutate(across(category_cinematographer:number_previous_movie, ~ ifelse(is.na(.), 0, .))) -> movie
+```
+
+
+```{r, include=FALSE}
+rm(prior_experience)
+```
+
+Once we do that, let's see how many first-time directors in our list have had prior experience working in creative non-directing roles.
+
+```{r}
+movie %>% 
+  # get distinct pairs of director and number of previous movie
+  distinct(director_id, number_previous_movie) %>% 
+  # count the number of directors with certain number of previous movie
+  count(number_previous_movie) %>% 
+  kbl_2()
+```
+
+It appears that most first-time directors in our list have not worked in other creative roles in movies before they directed their first movie. 
+
+Among the first-time directors who did worked in creative non-directing roles in past movies, what roles did they usually take on?
+
+```{r}
+movie %>% 
+  # get dummy variables on creative roles
+  select(director_id, starts_with("category_")) %>% 
+  # get distinct pairs of director and creative roles
+  distinct() %>% 
+  # count the number of directors who have worked on certain creative roles
+  summarise(across(starts_with("category_"), sum)) %>% 
+  # convert wide table to long table for plotting
+  tibble::add_column(ID = 1) %>% 
+  pivot_longer(!ID, names_to = "role", values_to = "n") %>% 
+  # clean up variable names for plotting
+  mutate(role = stringr::str_remove(role, "category_"), 
+         role = forcats::fct_reorder(role, -n)) %>% 
+  # create a bar chart with creative roles in the x axis, 
+  # number of directors in the y axis
+  ggplot(aes(role, n, fill = role)) +
+  geom_col(show.legend = FALSE) +
+  labs(x = NULL, y = "Number of directors",
+       title = "How many directors worked in creative non-directing role \n before they directed their first movie?")
+```
+
+It looks like most directors who have worked on other movies before they started directing were writers and producers. 
+
+## Director career after their first movie 
+Next we will count the number of movies each director went on to direct within the first 10 years of their career besides their first movie (i.e., their career survival). 
+
+```{r}
+movie %>% 
+  # get the movies directors in the list work on in the director role
+  filter(category == "director") %>% 
+  # convert release year to numeric 
+  mutate(across(c(first_movie_year, year), as.numeric)) %>% 
+  # get the movies each director directed within the first 10 years of their career
+  filter(year <= first_movie_year + 10) %>% 
+  # count the number of movies each directors made 
+  count(director_id) %>% 
+  rename(number_movie = n) -> number_movie
+
+movie %>% 
+  # convert release year to numeric
+  mutate(across(c(first_movie_year, year), as.numeric)) %>%
+  # merge movie data with career survival data
+  left_join(number_movie) %>% 
+  # count the number of movies each director went on direct 
+  # within the first 10 years of their career besides their first movie
+  mutate(number_movie = number_movie - number_first_movie) -> movie
+
+```
+
+
+```{r, include=FALSE}
+rm(number_movie)
+```
+
+Let's take a look at the number of movies the directors directed within the first 10 years of their career
+
+```{r}
+movie %>% 
+  # get distinct director-number of movie pair
+  distinct(director_id, number_movie) %>% 
+  # count the number of directors with certain number of movie
+  count(number_movie, sort = T) %>% 
+  kbl_2()
+```
+
+```{r}
+# create nested data with detailed career history of each director is nested in a list column
+movie %>% 
+  nest(movie_id:number_vote) %>% 
+  rename(career_history = data) -> movie
+```
+
+
+```{r, include=FALSE}
+saveRDS(movie, "C:/Users/nnguye79/OneDrive - McGill University/Work/Projects/Social cap and gender/Film-maker-network/Data/movie.rds")
+
+```
+
+
+
+Let's also graph the distribution of number of movies made by directors over time.
+
+```{r}
+movie %>% 
+  mutate(decade = (as.numeric(first_movie_year) %/% 10) * 10,
+         decade = factor(decade)) %>% 
+  ggplot(aes(decade, number_movie, color = decade)) +
+  geom_boxplot(outlier.colour = NA) +
+  geom_jitter(alpha = 0.1, width = 0.15) +
+  labs(x = NULL, 
+       y = "Number of movies",
+       title = "Distribution of number of movies directors made \n in the first 10 years of their career") +
+  theme(legend.position = "none") 
+```
+
+This is a little hard to see. Let's count the number of directors who had made 0, 1, 2, and more than 2 movies in the first 10 years of their career. 
+
+```{r}
+movie %>% 
+  mutate(number_movie_1 = ifelse(number_movie >2, 3, number_movie),
+         decade = (as.numeric(first_movie_year) %/% 10) * 10,
+         decade = factor(decade)) %>% 
+  count(decade, number_movie_1) %>% 
+  mutate(number_movie_1 = as.factor(number_movie_1)) %>% 
+  ggplot(aes(decade, n, fill = number_movie_1)) +
+  geom_col(position = position_dodge(preserve = "single")) +
+  scale_fill_manual(name = "Number of movies",
+                    labels=c("0","1","2", "More than 2"),
+                    values=c("#316879", "#f47a60", "#7fe7dc", "#fbcbc9")) +
+  labs(x = NULL,
+       y = "Number of directors",
+       title = "How many directors go on to make more movies \n after their first movie?")
+  
+```
+
+It looks like across time, the majority of directors did not go on to direct another movie after their first movie. Even among the directors who did, most only directed one or two movies after their first movie. This indicates high career failure among movie directors. As such, it is important to identify the factors that help (or hurt) career survival of movie directors.
+
+
+Part of my dissertation explores one such factor - the social network of the people a director worked with in their first movie. In other posts, I will construct the collaboration network of film-makers, calculate network position of a director's early collaborators, and test if working with people central in the network increases a director's chance of continuing their directing career.
