@@ -309,13 +309,14 @@ movie %>%
 rm(title_ratings)
 ```
 
-Let's graph the distribution of ratings for movies made by first-time directors over time. 
+Let's graph the distribution of ratings for movies made by first-time directors over time. To do this, we will group the directors based on the decade when they made their first movie - 1980s, 1990s, 2000s, 2010s.
 
 ```{r}
 movie %>% 
   filter(first_movie_id == movie_id) %>% 
   mutate(decade = (as.numeric(year) %/% 10) * 10,
-         decade = factor(decade)) %>% 
+         decade = factor(decade), 
+         decade = paste(decade, "s", sep = "")) %>% 
   ggplot(aes(decade, first_movie_rating, color = decade)) +
   geom_boxplot(outlier.colour = NA) +
   geom_jitter(alpha = 0.1, width = 0.15) +
@@ -334,7 +335,8 @@ options(scipen = 999)
 movie %>% 
   filter(first_movie_id == movie_id) %>% 
   mutate(decade = (as.numeric(year) %/% 10) * 10,
-         decade = factor(decade)) %>% 
+         decade = factor(decade), 
+         decade = paste(decade, "s", sep = "")) %>% 
   ggplot(aes(decade, first_movie_number_vote, color = decade)) +
   geom_boxplot(outlier.colour = NA) +
   geom_jitter(alpha = 0.1, width = 0.15) +
@@ -481,7 +483,8 @@ Let's also graph the distribution of number of movies made by directors over tim
 ```{r}
 movie %>% 
   mutate(decade = (as.numeric(first_movie_year) %/% 10) * 10,
-         decade = factor(decade)) %>% 
+         decade = factor(decade), 
+         decade = paste(decade, "s", sep = "")) %>% 
   ggplot(aes(decade, number_movie, color = decade)) +
   geom_boxplot(outlier.colour = NA) +
   geom_jitter(alpha = 0.1, width = 0.15) +
@@ -497,7 +500,8 @@ This is a little hard to see. Let's count the number of directors who had made 0
 movie %>% 
   mutate(number_movie_1 = ifelse(number_movie >2, 3, number_movie),
          decade = (as.numeric(first_movie_year) %/% 10) * 10,
-         decade = factor(decade)) %>% 
+         decade = factor(decade), 
+         decade = paste(decade, "s", sep = "")) %>% 
   count(decade, number_movie_1) %>% 
   mutate(number_movie_1 = as.factor(number_movie_1)) %>% 
   ggplot(aes(decade, n, fill = number_movie_1)) +
