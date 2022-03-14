@@ -1,7 +1,7 @@
 ---
 title: "Tracing career histories of film directors from IMDb data"
 author: 
-- Julie Nguyen ([Personal website](https://www.jnnguyen.com/))
+- Julie Nguyen ([Personal website](https://www.jnnguyen.com/), [Email](mailto:nhu.nguyen4@mail.mcgill.ca))
 date: "`r format(Sys.time(), '%B %d, %Y')`"
 output:
   html_document:
